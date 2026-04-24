@@ -1,0 +1,34 @@
+apiVersion: 1
+
+datasources:
+  - name: ClickHouse
+    type: grafana-clickhouse-datasource
+    uid: clickhouse-cinema
+    orgId: 1
+    isDefault: true
+    jsonData:
+      host: clickhouse
+      port: 8123
+      username: cinema
+      defaultDatabase: cinema
+      protocol: http
+      # Используем агрегированные таблицы, не raw-события
+    secureJsonData:
+      password: cinema_pass
+    editable: true
+
+  - name: PostgreSQL
+    type: postgres
+    uid: postgres-cinema
+    orgId: 1
+    url: postgres:5432
+    database: cinema_metrics
+    user: cinema
+    jsonData:
+      sslmode: disable
+      maxOpenConns: 5
+      postgresVersion: 1600
+      timescaledb: false
+    secureJsonData:
+      password: cinema_pass
+    editable: true

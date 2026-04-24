@@ -1,0 +1,113 @@
+# Maven
+target/
+*.class
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.eclipse/
+.settings/
+.classpath
+.project
+.factorypath
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Env files (содержат секреты)
+.env
+*.env.local
+*.env.*.local
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Test results
+.test-results/
+test-output/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.cache
+
+# Database
+*.db
+*.sqlite
+*.h2.db
+
+# ClickHouse data (local development)
+clickhouse-data/
+postgres-data/
+grafana-data/
+minio-data/
+kafka*-data/
+
+# S3/MinIO local data
+data/
+
+# Avro generated files (if any)
+generated-sources/avro/
+
+# Spring Boot
+spring-boot-*.log
+
+# JRebel
+rebel.xml
+
+# Gradle (if used in future)
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+.gradletasknamecache
+
+# Node.js (if any frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Coverage reports
+coverage/
+*.cover
+.hypothesis/
+.pytest_cache/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover.hprof
+
+# Backup files
+*.orig
+*~

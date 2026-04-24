@@ -1,0 +1,326 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Online Cinema — Event Streaming + Analytics Pipeline
+# Запуск: docker-compose up --build
+# ─────────────────────────────────────────────────────────────────────────────
+
+networks:
+  cinema-net:
+    driver: bridge
+
+volumes:
+  clickhouse-data:
+  postgres-data:
+  grafana-data:
+  minio-data:
+  kafka1-data:
+  kafka2-data:
+
+services:
+
+  # ─── Kafka Broker 1 (KRaft mode, без ZooKeeper) ──────────────────────────
+  kafka1:
+    image: confluentinc/cp-kafka:7.6.1
+    hostname: kafka1
+    container_name: cinema-kafka1
+    networks: [cinema-net]
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka1-data:/var/lib/kafka/data
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka1:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka1:9093,2@kafka2:9093
+      KAFKA_CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 2
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 2
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server kafka1:9092 --list || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ─── Kafka Broker 2 ───────────────────────────────────────────────────────
+  kafka2:
+    image: confluentinc/cp-kafka:7.6.1
+    hostname: kafka2
+    container_name: cinema-kafka2
+    networks: [cinema-net]
+    ports:
+      - "9094:9094"
+    volumes:
+      - kafka2-data:/var/lib/kafka/data
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9094,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka2:9094
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka1:9093,2@kafka2:9093
+      KAFKA_CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 2
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 2
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server kafka2:9094 --list || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ─── Schema Registry ──────────────────────────────────────────────────────
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.1
+    hostname: schema-registry
+    container_name: cinema-schema-registry
+    networks: [cinema-net]
+    ports:
+      - "8081:8081"
+    depends_on:
+      kafka1:
+        condition: service_healthy
+      kafka2:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "kafka1:9092,kafka2:9094"
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: 2
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/subjects || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ─── Kafka Topic Init (создаёт topic movie-events) ────────────────────────
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: cinema-kafka-init
+    networks: [cinema-net]
+    depends_on:
+      kafka1:
+        condition: service_healthy
+      kafka2:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "=== Creating Kafka topic movie-events ==="
+        kafka-topics --bootstrap-server kafka1:9092 \
+          --create --if-not-exists \
+          --topic movie-events \
+          --partitions 3 \
+          --replication-factor 2 \
+          --config min.insync.replicas=1 \
+          --config retention.ms=604800000
+        echo "=== Topic created successfully ==="
+        kafka-topics --bootstrap-server kafka1:9092 --describe --topic movie-events
+    restart: "no"
+
+  # ─── ClickHouse ───────────────────────────────────────────────────────────
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    hostname: clickhouse
+    container_name: cinema-clickhouse
+    networks: [cinema-net]
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./infra/clickhouse/init:/docker-entrypoint-initdb.d
+      - ./infra/clickhouse/config:/etc/clickhouse-server/config.d
+    environment:
+      CLICKHOUSE_DB: cinema
+      CLICKHOUSE_USER: cinema
+      CLICKHOUSE_PASSWORD: cinema_pass
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    depends_on:
+      kafka1:
+        condition: service_healthy
+      kafka2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user cinema --password cinema_pass --query 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ─── PostgreSQL ───────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    hostname: postgres
+    container_name: cinema-postgres
+    networks: [cinema-net]
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d
+    environment:
+      POSTGRES_DB: cinema_metrics
+      POSTGRES_USER: cinema
+      POSTGRES_PASSWORD: cinema_pass
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cinema -d cinema_metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # ─── MinIO (S3-совместимое хранилище) ─────────────────────────────────────
+  minio:
+    image: minio/minio:RELEASE.2024-04-06T05-26-02Z
+    hostname: minio
+    container_name: cinema-minio
+    networks: [cinema-net]
+    ports:
+      - "9001:9001"
+      - "9002:9002"
+    volumes:
+      - minio-data:/data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001" --address ":9002"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9002/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ─── MinIO Init (создаёт bucket movie-analytics) ─────────────────────────
+  minio-init:
+    image: minio/mc:RELEASE.2024-04-06T16-19-17Z
+    container_name: cinema-minio-init
+    networks: [cinema-net]
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mc alias set local http://minio:9002 minioadmin minioadmin123
+        mc mb --ignore-existing local/movie-analytics
+        mc anonymous set download local/movie-analytics
+        echo "=== MinIO bucket created ==="
+    restart: "no"
+
+  # ─── Movie Producer Service ───────────────────────────────────────────────
+  producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    hostname: producer
+    container_name: cinema-producer
+    networks: [cinema-net]
+    ports:
+      - "8080:8080"
+    depends_on:
+      kafka1:
+        condition: service_healthy
+      kafka2:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka1:9092,kafka2:9094"
+      SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      KAFKA_TOPIC: "movie-events"
+      GENERATOR_ENABLED: "true"
+      GENERATOR_EVENTS_PER_SECOND: "10"
+      GENERATOR_USER_COUNT: "50"
+      GENERATOR_MOVIE_COUNT: "20"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  # ─── Aggregation Service ──────────────────────────────────────────────────
+  aggregation-service:
+    build:
+      context: ./aggregation-service
+      dockerfile: Dockerfile
+    hostname: aggregation-service
+    container_name: cinema-aggregation
+    networks: [cinema-net]
+    ports:
+      - "8082:8082"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_URL: "jdbc:clickhouse://clickhouse:8123/cinema"
+      CLICKHOUSE_USER: "cinema"
+      CLICKHOUSE_PASSWORD: "cinema_pass"
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/cinema_metrics"
+      SPRING_DATASOURCE_USERNAME: "cinema"
+      SPRING_DATASOURCE_PASSWORD: "cinema_pass"
+      AGGREGATION_SCHEDULE_CRON: "0 0 * * * *"
+      S3_ENDPOINT: "http://minio:9002"
+      S3_ACCESS_KEY: "minioadmin"
+      S3_SECRET_KEY: "minioadmin123"
+      S3_BUCKET: "movie-analytics"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8082/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  # ─── Grafana ──────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    hostname: grafana
+    container_name: cinema-grafana
+    networks: [cinema-net]
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_INSTALL_PLUGINS: "grafana-clickhouse-datasource 4.0.2"
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
