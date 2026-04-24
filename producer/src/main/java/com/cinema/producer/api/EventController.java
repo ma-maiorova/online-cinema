@@ -31,11 +31,11 @@ import org.springframework.web.bind.annotation.*;
  *   <li>503 Service Unavailable + {@link AppError} при недоступности Kafka</li>
  * </ul>
  */
-@Tag(name = "Events", description = "API для приёма и публикации событий в Kafka")
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/events")
 @RequiredArgsConstructor
+@Tag(name = "Events", description = "API для приёма и публикации событий в Kafka")
 public class EventController {
 
     private final KafkaProducerService kafkaProducerService;

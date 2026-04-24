@@ -33,11 +33,11 @@ import java.util.Map;
  *   <li>GET  /api/v1/aggregation/health — проверка готовности</li>
  * </ul>
  */
-@Tag(name = "Aggregation", description = "API для управления агрегацией бизнес-метрик и экспортом в S3")
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/aggregation")
 @RequiredArgsConstructor
+@Tag(name = "Aggregation", description = "API для управления агрегацией бизнес-метрик и экспортом в S3")
 public class AggregationController {
 
     private final AggregationService aggregationService;
