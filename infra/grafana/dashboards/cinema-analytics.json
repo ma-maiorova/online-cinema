@@ -1,0 +1,180 @@
+{
+  "__inputs": [],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "datasource", "id": "grafana-clickhouse-datasource", "name": "ClickHouse", "version": "4.0.0" }
+  ],
+  "annotations": { "list": [] },
+  "description": "Online Cinema Analytics — DAU, конверсия, топ фильмов, retention cohort heatmap",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+
+    {
+      "id": 1,
+      "title": "DAU — Активные пользователи в день",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "postgres-cinema" },
+      "targets": [
+        {
+          "rawSql": "SELECT metric_date AS time, metric_value AS \"DAU\" FROM daily_metrics WHERE metric_name = 'dau' AND metric_date >= $__timeFrom()::date AND metric_date <= $__timeTo()::date ORDER BY metric_date",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2 },
+          "unit": "short",
+          "displayName": "DAU"
+        }
+      }
+    },
+
+    {
+      "id": 2,
+      "title": "Конверсия просмотра (VIEW_FINISHED / VIEW_STARTED)",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "postgres-cinema" },
+      "targets": [
+        {
+          "rawSql": "SELECT AVG(metric_value) * 100 AS \"Конверсия %\" FROM daily_metrics WHERE metric_name = 'conversion_rate' AND metric_date >= NOW() - INTERVAL '7 days'",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 30 },
+              { "color": "green", "value": 60 }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 3,
+      "title": "Среднее время просмотра (минуты)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "postgres-cinema" },
+      "targets": [
+        {
+          "rawSql": "SELECT AVG(metric_value) / 60 AS \"Минут\" FROM daily_metrics WHERE metric_name = 'avg_watch_seconds' AND metric_date >= NOW() - INTERVAL '7 days'",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "decimals": 1
+        }
+      }
+    },
+
+    {
+      "id": 4,
+      "title": "Топ-10 фильмов по просмотрам (последние 7 дней)",
+      "type": "barchart",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres-cinema" },
+      "targets": [
+        {
+          "rawSql": "SELECT dimension_key AS movie_id, SUM(metric_value) AS views FROM daily_metrics WHERE metric_name = 'top_movie' AND metric_date >= NOW() - INTERVAL '7 days' GROUP BY dimension_key ORDER BY views DESC LIMIT 10",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "displayName": "Просмотры"
+        }
+      },
+      "options": {
+        "xField": "movie_id",
+        "orientation": "horizontal"
+      }
+    },
+
+    {
+      "id": 5,
+      "title": "Retention Cohort Heatmap (Day 0 / D1 / D7)",
+      "description": "По вертикали — дата первого просмотра (когорта). По горизонтали — Day 0 / D1 / D7. В ячейках — % вернувшихся пользователей.",
+      "type": "table",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-cinema" },
+      "targets": [
+        {
+          "rawSql": "WITH cohorts AS (SELECT user_id, toDate(min(event_timestamp)) AS cohort_date FROM cinema.movie_events GROUP BY user_id), cohort_sizes AS (SELECT cohort_date, count() AS cohort_size FROM cohorts GROUP BY cohort_date), d1 AS (SELECT c.cohort_date, count(DISTINCT e.user_id) AS retained FROM cinema.movie_events e INNER JOIN cohorts c ON e.user_id = c.user_id WHERE toDate(e.event_timestamp) = c.cohort_date + INTERVAL 1 DAY GROUP BY c.cohort_date), d7 AS (SELECT c.cohort_date, count(DISTINCT e.user_id) AS retained FROM cinema.movie_events e INNER JOIN cohorts c ON e.user_id = c.user_id WHERE toDate(e.event_timestamp) = c.cohort_date + INTERVAL 7 DAY GROUP BY c.cohort_date) SELECT cs.cohort_date AS \"Когорта\", cs.cohort_size AS \"Day 0 (размер)\", 100.0 AS \"Day 0 %\", round(coalesce(d1.retained, 0) * 100.0 / cs.cohort_size, 1) AS \"Day 1 %\", round(coalesce(d7.retained, 0) * 100.0 / cs.cohort_size, 1) AS \"Day 7 %\" FROM cohort_sizes cs LEFT JOIN d1 ON cs.cohort_date = d1.cohort_date LEFT JOIN d7 ON cs.cohort_date = d7.cohort_date ORDER BY cs.cohort_date DESC LIMIT 30",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": "Day.*%" },
+            "properties": [
+              { "id": "unit", "value": "none" },
+              { "id": "custom.displayMode", "value": "color-background" },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "yellow", "value": 15 },
+                    { "color": "green", "value": 40 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    {
+      "id": 6,
+      "title": "Retention D1 / D7 по времени",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 18 },
+      "datasource": { "type": "postgres", "uid": "postgres-cinema" },
+      "targets": [
+        {
+          "rawSql": "SELECT metric_date AS time, CASE WHEN dimension_key = 'd1' THEN metric_value * 100 END AS \"Retention D1 %\", CASE WHEN dimension_key = 'd7' THEN metric_value * 100 END AS \"Retention D7 %\" FROM daily_metrics WHERE metric_name = 'retention_rate' AND metric_date >= $__timeFrom()::date ORDER BY metric_date",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      }
+    }
+
+  ],
+  "refresh": "5m",
+  "schemaVersion": 39,
+  "tags": ["cinema", "analytics"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Cinema Analytics",
+  "uid": "cinema-analytics-v1",
+  "version": 1
+}

@@ -1,0 +1,50 @@
+spring:
+  application:
+    name: aggregation-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/cinema_metrics}
+    username: ${SPRING_DATASOURCE_USERNAME:cinema}
+    password: ${SPRING_DATASOURCE_PASSWORD:cinema_pass}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 5000
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+server:
+  port: 8082
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+cinema:
+  clickhouse:
+    url: ${CLICKHOUSE_URL:jdbc:clickhouse://localhost:8123/cinema}
+    user: ${CLICKHOUSE_USER:cinema}
+    password: ${CLICKHOUSE_PASSWORD:cinema_pass}
+  aggregation:
+    # Cron расписание (по умолчанию — каждый час)
+    schedule-cron: ${AGGREGATION_SCHEDULE_CRON:0 0 * * * *}
+    # Сколько дней назад агрегировать (защита от пропущенных запусков)
+    lookback-days: ${AGGREGATION_LOOKBACK_DAYS:1}
+  s3:
+    endpoint: ${S3_ENDPOINT:http://localhost:9002}
+    access-key: ${S3_ACCESS_KEY:minioadmin}
+    secret-key: ${S3_SECRET_KEY:minioadmin123}
+    bucket: ${S3_BUCKET:movie-analytics}
+    region: ${S3_REGION:us-east-1}
+
+logging:
+  level:
+    com.cinema: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{correlationId}] %-5level %logger{36} - %msg%n"

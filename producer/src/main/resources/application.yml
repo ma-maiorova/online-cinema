@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: movie-producer
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      # acks=all: лидер ждёт подтверждения от всех ISR реплик
+      acks: all
+      retries: 3
+      properties:
+        retry.backoff.ms: 1000
+        max.block.ms: 10000
+        # Avro serializer
+        key.serializer: org.apache.kafka.common.serialization.StringSerializer
+        value.serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
+        schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8081}
+        # Автоматически регистрировать схему
+        auto.register.schemas: true
+        use.latest.version: false
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+cinema:
+  kafka:
+    topic: ${KAFKA_TOPIC:movie-events}
+    schema-registry-url: ${SCHEMA_REGISTRY_URL:http://localhost:8081}
+  generator:
+    enabled: ${GENERATOR_ENABLED:true}
+    # События в секунду (суммарно по всем пользователям)
+    events-per-second: ${GENERATOR_EVENTS_PER_SECOND:5}
+    user-count: ${GENERATOR_USER_COUNT:20}
+    movie-count: ${GENERATOR_MOVIE_COUNT:10}
+
+logging:
+  level:
+    com.cinema: DEBUG
+    org.apache.kafka: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{correlationId}] %-5level %logger{36} - %msg%n"
